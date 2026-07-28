@@ -23,8 +23,8 @@ MarketScan — это мощное веб-приложение на базе **S
 
 1. Склонируйте репозиторий:
    ```bash
-   git clone https://github.com/ВАШ_ЛОГИН/prodgectk2.git
-   cd prodgectk2
+   git clone https://github.com/666yar666/marketscan.git
+   cd marketscan
    ```
 
 2. Установите зависимости:
