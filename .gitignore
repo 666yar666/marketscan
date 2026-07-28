@@ -1,0 +1,39 @@
+# Учетные данные и секреты
+client_secret.json
+.oauth_state.json
+.streamlit/secrets.toml
+*.pem
+
+# Базы данных
+*.db
+*.sqlite
+*.sqlite3
+users.db
+
+# Виртуальное окружение
+venv/
+.venv/
+env/
+.env
+
+# Временные папки и скрипты
+scratch/
+
+# Кэш Python и скомпилированные файлы
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Специфично для Streamlit
+.streamlit/secrets.toml
+
+# Специфично для macOS
+.DS_Store
+
+# Инструменты разработчика (IDE)
+.vscode/
+.idea/
+.gemini/
+.agents/
