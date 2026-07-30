@@ -83,6 +83,13 @@ class OLXParser(BaseParser):
             href = link_elem.get("href", "")
             full_url = href if href.startswith("http") else f"https://www.olx.ua{href}"
 
+            card_text = card.get_text().lower()
+            condition = "unknown"
+            if "нове" in card_text or "новое" in card_text or "новий" in card_text or "новый" in card_text:
+                condition = "new"
+            elif "б/в" in card_text or "б/у" in card_text or "вживане" in card_text:
+                condition = "used"
+
             results.append(
                 ProductItem(
                     title=title,
@@ -90,7 +97,7 @@ class OLXParser(BaseParser):
                     currency=currency,
                     source="olx",
                     url=full_url,
-                    condition="unknown",
+                    condition=condition,
                 )
             )
 

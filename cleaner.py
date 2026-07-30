@@ -21,7 +21,11 @@ class DataCleaner:
         "комплект",
     }
 
-    NEW_KEYWORDS = {"новий", "новый", "new", "запечатаний", "запечатанный"}
+    NEW_KEYWORDS = {
+        "новий", "новый", "new", "запечатаний", "запечатанный", 
+        "пломб", "оригінальний", "оригинал", "упаковці", "упаковке", 
+        "в наявності", "в наличии", "гарантія", "гарантия"
+    }
     PARTS_KEYWORDS = {"на запчастини", "на запчасти", "донор", "не робочий", "не рабочий", "розбитий", "разбитый"}
 
     def __init__(self, min_price: float = 3000.0, usd_rate: float = 41.5) -> None:
@@ -59,7 +63,8 @@ class DataCleaner:
             seen_urls.add(item.url)
 
             # 4. Определяем состояние (new, used, parts)
-            item.condition = self._determine_condition(item.title, item.source)
+            if not item.condition or item.condition == "unknown":
+                item.condition = self._determine_condition(item.title, item.source)
 
             # Убираем товары на запчасти
             if item.condition != "parts":
