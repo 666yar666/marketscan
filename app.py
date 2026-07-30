@@ -1,3 +1,17 @@
+import typing
+
+# Fix Python 3.14 compatibility bug in Altair/TypedDict
+try:
+    if hasattr(typing, "_TypedDictMeta"):
+        _orig_typeddict_new = typing._TypedDictMeta.__new__
+        def _patched_typeddict_new(cls, name, bases, ns, total=True, **kwargs):
+            kwargs.pop("closed", None)
+            kwargs.pop("__extra_items__", None)
+            return _orig_typeddict_new(cls, name, bases, ns, total=total, **kwargs)
+        typing._TypedDictMeta.__new__ = _patched_typeddict_new
+except Exception:
+    pass
+
 import asyncio
 import requests
 import pandas as pd
