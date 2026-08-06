@@ -21,6 +21,7 @@ from curl_cffi.requests import AsyncSession
 
 from models import ProductItem
 from parsers.base import BaseParser
+from parsers.utils import fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,10 @@ class EbayParser(BaseParser):
                 headers=self._base_headers,
             ) as session:
                 # Warm-up: visit homepage to receive session cookies
-                await session.get(self.HOMEPAGE, timeout=8)
+                await fetch_with_retry(
+                    lambda: session.get(self.HOMEPAGE, timeout=8),
+                    max_retries=2
+                )
                 search_headers = {**self._base_headers, "Referer": f"{self.HOMEPAGE}/"}
 
                 for page in range(1, self.max_pages + 1):
@@ -95,11 +99,14 @@ class EbayParser(BaseParser):
                         "_pgn": str(page),
                     }
 
-                    response = await session.get(
-                        self.SEARCH_URL,
-                        params=params,
-                        headers=search_headers,
-                        timeout=15,
+                    response = await fetch_with_retry(
+                        lambda: session.get(
+                            self.SEARCH_URL,
+                            params=params,
+                            headers=search_headers,
+                            timeout=15,
+                        ),
+                        max_retries=3
                     )
 
                     if response.status_code != 200:

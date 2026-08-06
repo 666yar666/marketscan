@@ -11,6 +11,7 @@ from curl_cffi.requests import AsyncSession
 
 from models import ProductItem
 from parsers.base import BaseParser
+from parsers.utils import fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,10 @@ class HotlineParser(BaseParser):
                     page_param = f"&p={page}" if page > 1 else ""
                     url = self.BASE_SEARCH_URL.format(query=encoded) + page_param
 
-                    response = await session.get(url, timeout=12)
+                    response = await fetch_with_retry(
+                        lambda: session.get(url, timeout=12),
+                        max_retries=3
+                    )
                     if response.status_code != 200:
                         logger.warning(
                             "[Hotline] HTTP %s on page %s for query '%s'",

@@ -6,6 +6,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 from models import ProductItem
 from parsers.base import BaseParser
+from parsers.utils import fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +49,16 @@ class PromParser(BaseParser):
                     url += f"&page={page}"
 
                 try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                        if response.status != 200:
-                            logger.warning(
-                                f"[Prom] Non-200 HTTP status ({response.status}) received for URL: {url}"
-                            )
-                            break
-                        html = await response.text()
+                    response = await fetch_with_retry(
+                        lambda: session.get(url, timeout=aiohttp.ClientTimeout(total=10)),
+                        max_retries=3
+                    )
+                    if response.status != 200:
+                        logger.warning(
+                            f"[Prom] Non-200 HTTP status ({response.status}) received for URL: {url}"
+                        )
+                        break
+                    html = await response.text()
                 except Exception as exc:
                     logger.error(f"[Prom] Network or parsing exception encountered for URL {url}: {exc}")
                     break

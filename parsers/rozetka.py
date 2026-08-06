@@ -5,6 +5,7 @@ import urllib.parse
 from curl_cffi.requests import AsyncSession
 from models import ProductItem
 from parsers.base import BaseParser
+from parsers.utils import fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,10 @@ class RozetkaParser(BaseParser):
                     }
 
                     # Stage 1: Search for product IDs
-                    search_res = await session.get(self.SEARCH_API_URL, params=search_params, timeout=10)
+                    search_res = await fetch_with_retry(
+                        lambda: session.get(self.SEARCH_API_URL, params=search_params, timeout=10),
+                        max_retries=3
+                    )
                     if search_res.status_code != 200:
                         logger.warning(f"[Rozetka] Search API HTTP status {search_res.status_code}")
                         break
@@ -74,7 +78,10 @@ class RozetkaParser(BaseParser):
                         "ids": ",".join(product_ids),
                     }
 
-                    details_res = await session.get(self.DETAILS_API_URL, params=details_params, timeout=10)
+                    details_res = await fetch_with_retry(
+                        lambda: session.get(self.DETAILS_API_URL, params=details_params, timeout=10),
+                        max_retries=3
+                    )
                     if details_res.status_code != 200:
                         logger.warning(f"[Rozetka] Details API HTTP status {details_res.status_code}")
                         break
