@@ -133,23 +133,7 @@ def get_usd_rate() -> float:
     return 41.5  # fallback
 
 
-def convert_prices(items: list, target_currency: str, usd_rate: float) -> list:
-    """Конвертирует цены всех товаров в целевую валюту."""
-    import copy
-    converted = []
-    for item in items:
-        obj = copy.copy(item)
-        if target_currency == "UAH" and obj.currency == "USD":
-            obj.price = round(obj.price * usd_rate, 2)
-            obj.currency = "UAH"
-        elif target_currency == "USD" and obj.currency == "UAH":
-            obj.price = round(obj.price / usd_rate, 2)
-            obj.currency = "USD"
-        converted.append(obj)
-    return converted
-
-
-# --- АСИНХРОННАЯ ФУНКЦИЯ СБОРА ---
+# --- АСИНХРОННАЯ ФУНКЦИЯ СБОРА И КЭШИРОВАНИЕ ---
 async def scrape_all(query: str, active_markets: list[str]):
     tasks = []
     for market_name in active_markets:
@@ -164,6 +148,41 @@ async def scrape_all(query: str, active_markets: list[str]):
         if isinstance(res, list):
             all_items.extend(res)
     return all_items
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_cached_market_data(query: str, active_markets: tuple[str, ...]) -> list:
+    """Кэширует результаты сбора парсеров на 10 минут."""
+    return asyncio.run(scrape_all(query, list(active_markets)))
+
+
+def prepare_dataframe(items: list, target_currency: str, usd_rate: float) -> pd.DataFrame:
+    """Формирует DataFrame из объектов ProductItem и оптимально конвертирует цены."""
+    records = []
+    for item in items:
+        price = item.price
+        currency = item.currency
+        if target_currency == "UAH" and currency == "USD":
+            price = round(price * usd_rate, 2)
+            currency = "UAH"
+        elif target_currency == "USD" and currency == "UAH":
+            price = round(price / usd_rate, 2)
+            currency = "USD"
+        
+        records.append({
+            "title": item.title,
+            "price": price,
+            "currency": currency,
+            "source": item.source,
+            "url": item.url,
+            "condition": item.condition,
+        })
+    
+    df = pd.DataFrame(records)
+    if not df.empty:
+        df["marketplace"] = df["source"].str.upper()
+        df["condition"] = df["condition"].str.upper()
+    return df
 
 
 # --- ПРОЦЕССИНГ GOOGLE OAUTH ---
@@ -196,6 +215,12 @@ if "code" in st.query_params:
         st.rerun()
     except Exception as e:
         st.error(t["auth_error"].format(error=e))
+
+# --- ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ (st.session_state) ---
+if "raw_items" not in st.session_state:
+    st.session_state["raw_items"] = None
+if "active_query" not in st.session_state:
+    st.session_state["active_query"] = ""
 
 # --- ИНТЕРФЕЙС УПРАВЛЕНИЯ (Сайдбар) ---
 with st.sidebar:
@@ -316,10 +341,6 @@ with st.sidebar:
 # Символ валюты для интерфейса
 currency_symbol = "₴" if display_currency == "UAH" else "$"
 
-# Теперь можно обновить min_price_label, если нужно (но number_input уже отрендерился,
-# поэтому мы просто можем оставить (₴) или использовать display_currency, 
-# но в оригинале было просто "Минимальная цена (₴)". В словаре есть {currency})
-
 # --- ГЛАВНЫЙ ЭКРАН (Поиск) ---
 query = st.text_input(t["search_input_label"], placeholder=t["search_input_placeholder"])
 search_button = st.button(t["search_btn"], type="primary", use_container_width=True)
@@ -330,101 +351,98 @@ if search_button and query:
         st.stop()
 
     with st.spinner(t["searching_spinner"].format(query=query, markets=", ".join(selected_markets))):
-        # 1. Запуск парсеров
-        raw_items = asyncio.run(scrape_all(query, selected_markets))
+        # 1. Запуск кэшированного парсера
+        items = fetch_cached_market_data(query, tuple(selected_markets))
+        st.session_state["raw_items"] = items
+        st.session_state["active_query"] = query
 
-        if not raw_items:
-            st.error(t["nothing_found"])
-            st.stop()
+# --- ОТРИСОВКА РЕЗУЛЬТАТОВ ИЗ SESSION_STATE ---
+if st.session_state["raw_items"] is not None:
+    raw_items = st.session_state["raw_items"]
+    active_query = st.session_state["active_query"]
 
+    if not raw_items:
+        st.error(t["nothing_found"])
+    else:
         # 2. Очистка и фильтрация
         cleaner = DataCleaner(min_price=float(min_price), usd_rate=usd_rate)
-        cleaned_items = cleaner.process(raw_items, query=query)
+        cleaned_items = cleaner.process(raw_items, query=active_query)
 
         if not cleaned_items:
             st.warning(t["all_too_cheap"].format(min_price=min_price))
-            st.stop()
+        else:
+            # 3. Оптимизированное формирование DataFrame с конвертацией цен
+            df = prepare_dataframe(cleaned_items, display_currency, usd_rate)
 
-        # 3. Конвертация валюты
-        converted_items = convert_prices(cleaned_items, display_currency, usd_rate)
+            df_new = df[df["condition"] == "NEW"]
+            df_used = df[df["condition"] == "USED"]
 
-        # 4. Преобразование в DataFrame
-        df = pd.DataFrame([item.__dict__ for item in converted_items])
+            # --- ВЫВОД СТАТИСТИКИ ---
+            st.subheader(t["market_analysis"])
+            col1, col2 = st.columns(2)
 
-        # Нормализация наименований для интерфейса
-        df["marketplace"] = df["source"].str.upper()
-        df["condition"] = df["condition"].str.upper()
-
-        df_new = df[df["condition"] == "NEW"]
-        df_used = df[df["condition"] == "USED"]
-
-        # --- ВЫВОД СТАТИСТИКИ ---
-        st.subheader(t["market_analysis"])
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown(t["new_items"])
-            clean_prices_new = df_new["price"].dropna() if not df_new.empty else pd.Series(dtype=float)
-            if not clean_prices_new.empty:
-                median_new = clean_prices_new.median()
-                min_new = clean_prices_new.min()
-                max_new = clean_prices_new.max()
-                if display_currency == "UAH":
-                    st.metric(t["median_price"], f"{int(round(median_new)):,} ₴".replace(",", " "))
-                    st.caption(t["found_count_range_uah"].format(count=len(df_new), min_val=f"{int(round(min_new)):,}".replace(",", " "), max_val=f"{int(round(max_new)):,}".replace(",", " ")))
+            with col1:
+                st.markdown(t["new_items"])
+                clean_prices_new = df_new["price"].dropna() if not df_new.empty else pd.Series(dtype=float)
+                if not clean_prices_new.empty:
+                    median_new = clean_prices_new.median()
+                    min_new = clean_prices_new.min()
+                    max_new = clean_prices_new.max()
+                    if display_currency == "UAH":
+                        st.metric(t["median_price"], f"{int(round(median_new)):,} ₴".replace(",", " "))
+                        st.caption(t["found_count_range_uah"].format(count=len(df_new), min_val=f"{int(round(min_new)):,}".replace(",", " "), max_val=f"{int(round(max_new)):,}".replace(",", " ")))
+                    else:
+                        st.metric(t["median_price"], f"${median_new:,.2f}")
+                        st.caption(t["found_count_range_usd"].format(count=len(df_new), min_val=f"{min_new:,.2f}", max_val=f"{max_new:,.2f}"))
                 else:
-                    st.metric(t["median_price"], f"${median_new:,.2f}")
-                    st.caption(t["found_count_range_usd"].format(count=len(df_new), min_val=f"{min_new:,.2f}", max_val=f"{max_new:,.2f}"))
-            else:
-                st.info(t["new_items_not_found"])
+                    st.info(t["new_items_not_found"])
 
-        with col2:
-            st.markdown(t["used_items"])
-            clean_prices_used = df_used["price"].dropna() if not df_used.empty else pd.Series(dtype=float)
-            if not clean_prices_used.empty:
-                median_used = clean_prices_used.median()
-                min_used = clean_prices_used.min()
-                max_used = clean_prices_used.max()
-                if display_currency == "UAH":
-                    st.metric("Медианная цена", f"{int(round(median_used)):,} ₴".replace(",", " "))
-                    st.caption(f"Найдено: {len(df_used)} шт. | Диапазон: {int(round(min_used)):,} – {int(round(max_used)):,} ₴".replace(",", " "))
+            with col2:
+                st.markdown(t["used_items"])
+                clean_prices_used = df_used["price"].dropna() if not df_used.empty else pd.Series(dtype=float)
+                if not clean_prices_used.empty:
+                    median_used = clean_prices_used.median()
+                    min_used = clean_prices_used.min()
+                    max_used = clean_prices_used.max()
+                    if display_currency == "UAH":
+                        st.metric("Медианная цена", f"{int(round(median_used)):,} ₴".replace(",", " "))
+                        st.caption(f"Найдено: {len(df_used)} шт. | Диапазон: {int(round(min_used)):,} – {int(round(max_used)):,} ₴".replace(",", " "))
+                    else:
+                        st.metric("Медианная цена", f"${median_used:,.2f}")
+                        st.caption(f"Найдено: {len(df_used)} шт. | Диапазон: ${min_used:,.2f} – ${max_used:,.2f}")
                 else:
-                    st.metric("Медианная цена", f"${median_used:,.2f}")
-                    st.caption(f"Найдено: {len(df_used)} шт. | Диапазон: ${min_used:,.2f} – ${max_used:,.2f}")
-            else:
-                st.info("Б/У товаров не найдено")
+                    st.info("Б/У товаров не найдено")
 
-        st.divider()
+            st.divider()
 
-        # --- ГРАФИК ЦЕН ---
-        st.subheader(t["price_distribution"].format(currency=display_currency))
-        st.scatter_chart(
-            df,
-            x="marketplace",
-            y="price",
-            color="condition",
-            size=100,
-        )
+            # --- ГРАФИК ЦЕН ---
+            st.subheader(t["price_distribution"].format(currency=display_currency))
+            st.scatter_chart(
+                df,
+                x="marketplace",
+                y="price",
+                color="condition",
+                size=100,
+            )
 
-        st.divider()
+            st.divider()
 
-        # --- ТАБЛИЦА С ТОВАРАМИ ---
-        price_col_label = t["col_price"].format(currency=currency_symbol)
-        price_format = "%d" if display_currency == "UAH" else "%.2f"
+            # --- ТАБЛИЦА С ТОВАРАМИ ---
+            price_col_label = t["col_price"].format(currency=currency_symbol)
 
-        st.subheader(t["found_items_list"])
-        st.dataframe(
-            df[["title", "price", "marketplace", "condition", "url"]].sort_values(by="price"),
-            column_config={
-                "title": t["col_title"],
-                "price": st.column_config.NumberColumn(
-                    price_col_label,
-                    format=f"{currency_symbol}%d" if display_currency == "UAH" else "$%.2f",
-                ),
-                "marketplace": t["col_market"],
-                "condition": t["col_condition"],
-                "url": st.column_config.LinkColumn(t["col_url"]),
-            },
-            hide_index=True,
-            use_container_width=True,
-        )
+            st.subheader(t["found_items_list"])
+            st.dataframe(
+                df[["title", "price", "marketplace", "condition", "url"]].sort_values(by="price"),
+                column_config={
+                    "title": t["col_title"],
+                    "price": st.column_config.NumberColumn(
+                        price_col_label,
+                        format=f"{currency_symbol}%d" if display_currency == "UAH" else "$%.2f",
+                    ),
+                    "marketplace": t["col_market"],
+                    "condition": t["col_condition"],
+                    "url": st.column_config.LinkColumn(t["col_url"]),
+                },
+                hide_index=True,
+                use_container_width=True,
+            )
