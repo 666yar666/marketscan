@@ -158,10 +158,16 @@ class EbayParser(BaseParser):
         if price_elem is None:
             return None
         raw_price = price_elem.get_text(strip=True)
-        price_match = _PRICE_RE.search(raw_price)
-        if not price_match:
-            return None
-        price = float(price_match.group(1).replace(",", ""))
+        if "to" in raw_price.lower():
+            matches = _PRICE_RE.findall(raw_price)
+            if not matches:
+                return None
+            price = float(matches[0].replace(",", ""))
+        else:
+            price_match = _PRICE_RE.search(raw_price)
+            if not price_match:
+                return None
+            price = float(price_match.group(1).replace(",", ""))
 
         # --- Href ---
         link_elem = card.select_one("a[href*='/itm/']")

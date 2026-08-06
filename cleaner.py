@@ -90,8 +90,9 @@ class DataCleaner:
         base_cleaned = self.clean_data(products, min_price=effective_min_price)
         
         fuzzy_matched = []
+        query_lower = query.lower().strip()
         for item in base_cleaned:
-            if not query or fuzz.partial_ratio(query.lower(), item.title.lower()) >= 70.0:
+            if not query_lower or fuzz.token_set_ratio(query_lower, item.title.lower()) >= 65.0:
                 fuzzy_matched.append(item)
 
         logger.info(f"Data cleaner finished: {len(fuzzy_matched)} items remaining after processing.")

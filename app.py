@@ -73,11 +73,16 @@ def save_verifier(state: str, verifier: str):
         json.dump(data, f)
 
 def get_verifier(state: str) -> str:
-    if os.path.exists(".oauth_state.json"):
+    if state and os.path.exists(".oauth_state.json"):
         try:
             with open(".oauth_state.json", "r") as f:
                 data = json.load(f)
-                return data.get(state)
+            verifier = data.get(state)
+            if state in data:
+                del data[state]
+                with open(".oauth_state.json", "w") as f:
+                    json.dump(data, f)
+            return verifier
         except Exception:
             pass
     return None
@@ -359,13 +364,14 @@ if search_button and query:
 
         with col1:
             st.markdown(t["new_items"])
-            if not df_new.empty:
-                median_new = df_new["price"].median()
-                min_new = df_new["price"].min()
-                max_new = df_new["price"].max()
+            clean_prices_new = df_new["price"].dropna() if not df_new.empty else pd.Series(dtype=float)
+            if not clean_prices_new.empty:
+                median_new = clean_prices_new.median()
+                min_new = clean_prices_new.min()
+                max_new = clean_prices_new.max()
                 if display_currency == "UAH":
-                    st.metric(t["median_price"], f"{int(median_new):,} ₴".replace(",", " "))
-                    st.caption(t["found_count_range_uah"].format(count=len(df_new), min_val=f"{int(min_new):,}".replace(",", " "), max_val=f"{int(max_new):,}".replace(",", " ")))
+                    st.metric(t["median_price"], f"{int(round(median_new)):,} ₴".replace(",", " "))
+                    st.caption(t["found_count_range_uah"].format(count=len(df_new), min_val=f"{int(round(min_new)):,}".replace(",", " "), max_val=f"{int(round(max_new)):,}".replace(",", " ")))
                 else:
                     st.metric(t["median_price"], f"${median_new:,.2f}")
                     st.caption(t["found_count_range_usd"].format(count=len(df_new), min_val=f"{min_new:,.2f}", max_val=f"{max_new:,.2f}"))
@@ -374,13 +380,14 @@ if search_button and query:
 
         with col2:
             st.markdown(t["used_items"])
-            if not df_used.empty:
-                median_used = df_used["price"].median()
-                min_used = df_used["price"].min()
-                max_used = df_used["price"].max()
+            clean_prices_used = df_used["price"].dropna() if not df_used.empty else pd.Series(dtype=float)
+            if not clean_prices_used.empty:
+                median_used = clean_prices_used.median()
+                min_used = clean_prices_used.min()
+                max_used = clean_prices_used.max()
                 if display_currency == "UAH":
-                    st.metric("Медианная цена", f"{int(median_used):,} ₴".replace(",", " "))
-                    st.caption(f"Найдено: {len(df_used)} шт. | Диапазон: {int(min_used):,} – {int(max_used):,} ₴".replace(",", " "))
+                    st.metric("Медианная цена", f"{int(round(median_used)):,} ₴".replace(",", " "))
+                    st.caption(f"Найдено: {len(df_used)} шт. | Диапазон: {int(round(min_used)):,} – {int(round(max_used)):,} ₴".replace(",", " "))
                 else:
                     st.metric("Медианная цена", f"${median_used:,.2f}")
                     st.caption(f"Найдено: {len(df_used)} шт. | Диапазон: ${min_used:,.2f} – ${max_used:,.2f}")

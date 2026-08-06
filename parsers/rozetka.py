@@ -51,13 +51,19 @@ class RozetkaParser(BaseParser):
                         logger.warning(f"[Rozetka] Search API HTTP status {search_res.status_code}")
                         break
 
-                    data = search_res.json().get("data", {})
-                    goods = data.get("goods", [])
+                    try:
+                        search_json = search_res.json()
+                    except Exception as exc:
+                        logger.warning(f"[Rozetka] Failed to parse JSON from search response: {exc}")
+                        break
+
+                    data = search_json.get("data", {}) if isinstance(search_json, dict) else {}
+                    goods = data.get("goods", []) if isinstance(data, dict) else []
                     if not goods:
                         logger.info(f"[Rozetka] No items in search API on page {page}.")
                         break
 
-                    product_ids = [str(g["id"]) for g in goods if "id" in g]
+                    product_ids = [str(g["id"]) for g in goods if isinstance(g, dict) and "id" in g]
                     if not product_ids:
                         break
 
@@ -73,7 +79,13 @@ class RozetkaParser(BaseParser):
                         logger.warning(f"[Rozetka] Details API HTTP status {details_res.status_code}")
                         break
 
-                    products_data = details_res.json().get("data", [])
+                    try:
+                        details_json = details_res.json()
+                    except Exception as exc:
+                        logger.warning(f"[Rozetka] Failed to parse JSON from details response: {exc}")
+                        break
+
+                    products_data = details_json.get("data", []) if isinstance(details_json, dict) else []
                     for prod in products_data:
                         title = prod.get("title", "")
                         raw_price = prod.get("price", 0.0)
